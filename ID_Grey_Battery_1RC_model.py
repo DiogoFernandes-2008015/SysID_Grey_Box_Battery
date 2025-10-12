@@ -1,17 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Sep 30 09:47:33 2025
-
-@author: Lenovo
-"""
-
-# -*- coding: utf-8 -*-
-"""
-Created on Sat Jul 19 00:34:20 2025
-
-@author: Lenovo
-"""
-
 import numpy as np
 from scipy.integrate import odeint
 import matplotlib.pyplot as plt
