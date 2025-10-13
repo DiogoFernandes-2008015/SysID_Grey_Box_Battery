@@ -1,6 +1,4 @@
-import numpy as np
 from scipy.integrate import odeint
-import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from scipy.io import loadmat
 from tqdm import tqdm # For the progress bar
@@ -11,6 +9,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from diffrax import diffeqsolve, Dopri5, ODETerm, SaveAt, LinearInterpolation
+#Cheking where is JAX running
 try:
     print(f"JAX is running on: {jax.devices()[0].platform.upper()}")
 except IndexError:
@@ -49,17 +48,18 @@ u = u.reshape(-1)
 y = y.reshape(-1)
 
 # Signal generation parameters
-# N = 2048  # Number of samples (power of 2 is efficient for FFT)
 N = time.shape[0]
 Ts = time[1]-time[0]
 fs = 1/Ts
 T = time[-1]  # Total time in seconds
 
-print(N, fs, T, Ts)
+print(f"N ={N:.4f}\nfs={fs:.4f}\nT = {T:.4f}\nTs = {Ts:.4f}")
 
-n_shots = 100 # 8150 / 163 = 50 data points per shot.
+
+n_shots = 100 # number of shots
 n_timesteps_per_shot = N // n_shots
 n_states = 2 # number of states of the model
+n_params = 4 # number of parameters
 
 # Reshape data into batches for multiple shooting
 t_shots = jnp.array(time.reshape(n_shots, n_timesteps_per_shot))
@@ -84,8 +84,8 @@ def create_loss_and_constraint_fns(t_shots, y_data, u_interp):
     
     @jax.jit
     def objective_jax(decision_vars):
-        R0, R1, C1, n = decision_vars[:4]
-        x_initial_shots = decision_vars[4:].reshape(n_shots, 2) 
+        R0, R1, C1, n = decision_vars[:n_params]
+        x_initial_shots = decision_vars[n_params:].reshape(n_shots, n_states)
         args = (R0,R1,C1,n, u_interp)
         
         def simulate_shot(t_shot, x0):
@@ -98,9 +98,8 @@ def create_loss_and_constraint_fns(t_shots, y_data, u_interp):
         
         # Função que calcula a saída para UM PASSO de tempo
         def model_output_step(t, x_step, R0_scalar, u_interp_obj):
-            # Obtemos a corrente (u) usando o objeto interpolador
             u = u_interp_obj.evaluate(t)
-            
+            #OCV = p(SOC)
             p = jnp.array([1.02726610e+03,
                            -5.13266541e+03,
                            1.09109051e+04,
@@ -110,35 +109,33 @@ def create_loss_and_constraint_fns(t_shots, y_data, u_interp):
                            1.07265101e+03,
                            -1.65017255e+02,
                            1.36600705e+01,
-                           3.10715139e+00]) # Polinômio
+                           3.10715139e+00])
             OCV = jnp.polyval(p, x_step[0])
-            # A saída é: OCV + R0*u + Vc (x[1])
+            # Output equation: OCV + R0*u + Vc (x[1])
             y_pred_step = OCV + R0_scalar * u + x_step[1]
             return y_pred_step
 
         def process_shot_output(t_shot, x_shot, R0_scalar, u_interp_obj):
-            # Mapeia sobre o tempo (N_steps). t, x_step variam (0), R0 e u_interp são constantes (None).
             return jax.vmap(model_output_step, in_axes=(0, 0, None, None))(t_shot, x_shot, R0_scalar, u_interp_obj)
         
-        # Mapeia sobre os shots (N_shots). t_shot e x_shot variam (0), R0 e u_interp são constantes (None).
         y_pred = jax.vmap(process_shot_output, in_axes=(0, 0, None, None))(t_shots, x_pred, R0, u_interp)
         
-        # Perda: y_pred e y_data agora têm shape (N_shots, N_steps)
+        # Loss function
         return jnp.sum((y_pred - y_data)**2)
 
     @jax.jit
     def continuity_constraints_jax(decision_vars):
-        R0,R1,C1,n = decision_vars[:4]
-        x_initial_shots = decision_vars[4:].reshape(n_shots, 2) 
+        R0,R1,C1,n = decision_vars[:n_params]
+        x_initial_shots = decision_vars[n_params:].reshape(n_shots, n_states)
         args = (R0,R1,C1,n, u_interp)
 
         def get_end_state(t_shot, x0):
-            # CORREÇÃO: y0 = x0
+
             sol = diffeqsolve(term, solver, t0=t_shot[0], t1=t_shot[-1], dt0=Ts, y0=x0, args=args)
             return sol.ys[-1]
 
         x_end_of_shots = jax.vmap(get_end_state)(t_shots[:-1], x_initial_shots[:-1])
-        # CORREÇÃO: X_end_of_shots -> x_end_of_shots
+
         return (x_end_of_shots - x_initial_shots[1:]).flatten()
 
     return objective_jax, continuity_constraints_jax
@@ -161,52 +158,33 @@ def cons_for_scipy(dv_np):
 def cons_jac_for_scipy(dv_np):
     return np.array(constraints_jac_func(jnp.array(dv_np)))
 
-# Set up the optimization problem
-R0_guess = 0.0268  # Resistência de Série
-R1_guess = 56.323  # Resistência do RC
-C1_guess = 3620.4 # Capacitância do RC
+# Set up the optimization problem - initial guess
+R0_guess = 0.0268
+R1_guess = 56.323
+C1_guess = 3620.4
 n_guess  = 1e-4
 param_guess = jnp.array([R0_guess, R1_guess, C1_guess, n_guess])
 
-# 2. Palpite para o PRIMEIRO Estado Inicial (x_0,1)
-# Estado inicial: [SOC, Vc]
+# Guess for the states (x_0,1)
 x_initial_first_shot = jnp.array([0.98, 0.0]) # SOC em 98%, Vc em 0V
 
-# 3. Palpite para os Estados dos Shots Intermediários
-x_initial_shots_repeated = jnp.tile(x_initial_first_shot, n_shots) 
-# Agora x_initial_shots_repeated tem 326 elementos (163 * 2)
+x_initial_shots_repeated = jnp.tile(x_initial_first_shot, n_shots)
 
-# 4. Concatenar para o vetor de decisão final
+# Concatenate the initial guess for the parameters and states
 initial_guess_np = jnp.concatenate([param_guess, x_initial_shots_repeated])
 cons = ({'type': 'eq', 'fun': cons_for_scipy, 'jac': cons_jac_for_scipy})
 
-# ---  Limites para os 4 Parâmetros (R0, R1, C1, n) ---
-
-# [R0_min, R0_max] (Exemplo: R0 deve ser pequeno e positivo)
-b_R0 = (1e-6, 1) 
-# [R1_min, R1_max]
-b_R1 = (1e-6, 5000.0) 
-# [C1_min, C1_max] (Exemplo: Capacitância geralmente é grande)
-b_C1 = (1.0, 50000.0) 
-# [n_min, n_max] (Exemplo: Taxa de reação/perda)
+# Setting bounds for parameters and states
+b_R0 = (1e-6, 1)
+b_R1 = (1e-6, 1e10)
+b_C1 = (1.0, 50000.0)
 b_n = (1e-6, 1)
-
 param_bounds = [b_R0, b_R1, b_C1, b_n]
 
-# ---  Limites para os Estados Iniciais (Todos sem limites) ---
-
-# Definimos 'None' para um único estado.
-b_no_limit = (None, None) 
-
-# Os estados iniciais são (SOC, Vc). Repetimos (None, None) duas vezes por shot.
-state_bounds_one_shot = [b_no_limit, b_no_limit] 
-
-# Repetimos essa dupla (None, None) para todos os n_shots
-state_bounds_all_shots = state_bounds_one_shot * n_shots 
-
-# Combina os limites dos parâmetros com as restrições livres dos estados
+b_no_limit = (None, None)
+state_bounds_one_shot = [b_no_limit, b_no_limit]
+state_bounds_all_shots = state_bounds_one_shot * n_shots
 all_bounds = param_bounds + state_bounds_all_shots
-
 
 # Run the optimization with a progress bar
 max_iterations = 10000
@@ -229,8 +207,8 @@ with tqdm(total=max_iterations, desc="Optimizing Parameters") as pbar:
 print("\nOptimization finished with status:", result.message)
 
 # Extract and display results
-R0,R1,C1,n = result.x[:4]
-x_initial_estimated = jnp.array(result.x[4:6])
+R0,R1,C1,n = result.x[:n_params]
+x_initial_estimated = jnp.array(result.x[n_params:n_params+n_states])
 
 print("\n--- Identification Results ---")
 print(f"Estimated parameters: R0 = {R0:.4f}, R1 = {R1:.4f}, C1 = {C1:.4f}, n = {n:.4f}")
@@ -262,36 +240,27 @@ final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=x_init
 yhat = final_sol.ys.flatten()
 y_hat = jax.vmap(model_output_step, in_axes=(0, 0, None, None))(time,final_sol.ys, R0, u_interpolation)
 
+#Metrics
 MSE = np.mean((y-y_hat)**2)
-print(MSE)
-
-# Média dos dados reais (y)
 y_mean = jnp.mean(y)
-
-# 1. Soma dos Quadrados dos Resíduos (RSS - Residual Sum of Squares)
-# O numerador da fórmula do R²
 RSS = jnp.sum((y - y_hat)**2)
-
-# 2. Soma Total dos Quadrados (TSS - Total Sum of Squares)
-# O denominador da fórmula do R² (Variância total dos dados)
 TSS = jnp.sum((y - y_mean)**2)
-
-# 3. Cálculo final do R²
 r2 = 1.0 - (RSS / TSS)
-print(r2)
 
-print(f"R²: {r2:.4f}")
+print(f"R²: {r2:.4f}, MSE = {MSE:.4f}")
 
 # Plot final results
 plt.figure(figsize=(12, 7))
 plt.plot(time, y, 'k', label='True state', alpha=0.4)
 plt.plot(time,  y_hat, 'b--', label='Identified Model Prediction', linewidth=2)
+plt.plot(time, y-y_hat, 'r', label='Mean Model Prediction', linewidth=2)
 plt.xlabel('Time (s)')
 plt.title('Model Identification Result with Multisine Input')
 plt.legend()
 plt.grid(True)
 plt.show()
 
+#Loading validation dataset
 DATA = loadmat('data_val.mat')
 u = DATA['i']
 y = DATA['v']
@@ -307,8 +276,7 @@ Ts = time[1]-time[0]
 fs = 1/Ts
 T = time[-1]  # Total time in seconds
 
-print(N, fs, T, Ts)
-
+print(f"N ={N:.4f}\nfs={fs:.4f}\nT = {T:.4f}\nTs = {Ts:.4f}")
 
 # Create a differentiable interpolation object for the input signal
 u_interpolation = LinearInterpolation(ts=time, ys=u)
@@ -323,29 +291,17 @@ y_hat = jax.vmap(model_output_step, in_axes=(0, 0, None, None))(time,final_sol.y
 plt.figure(figsize=(12, 7))
 plt.plot(time, y, 'k', label='True state', alpha=0.4)
 plt.plot(time, y_hat, 'b--', label='Identified Model Prediction', linewidth=2)
+plt.plot(time, y-y_hat, 'r', label='Mean Model Prediction', linewidth=2)
 plt.xlabel('Time (s)')
 plt.title('Model Identification Result with Multisine Input')
 plt.legend()
 plt.grid(True)
 plt.show()
 
-
+#Metrics
 MSE = np.mean((y-y_hat)**2)
-print(MSE)
-
-# Média dos dados reais (y)
 y_mean = jnp.mean(y)
-
-# 1. Soma dos Quadrados dos Resíduos (RSS - Residual Sum of Squares)
-# O numerador da fórmula do R²
 RSS = jnp.sum((y - y_hat)**2)
-
-# 2. Soma Total dos Quadrados (TSS - Total Sum of Squares)
-# O denominador da fórmula do R² (Variância total dos dados)
 TSS = jnp.sum((y - y_mean)**2)
-
-# 3. Cálculo final do R²
 r2 = 1.0 - (RSS / TSS)
-print(r2)
-
-print(f"R²: {r2:.4f}")
+print(f"R²: {r2:.4f}, MSE = {MSE:.4f}")
