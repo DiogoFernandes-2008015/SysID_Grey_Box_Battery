@@ -1,6 +1,9 @@
 from scipy.integrate import odeint
+import datetime
+import matplotlib
 from scipy.optimize import minimize
 from scipy.io import loadmat
+from scipy.io import savemat
 from tqdm import tqdm # For the progress bar
 import os
 import scipy.io
@@ -9,6 +12,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from diffrax import diffeqsolve, Dopri5, ODETerm, SaveAt, LinearInterpolation
+
 #Cheking where is JAX running
 try:
     print(f"JAX is running on: {jax.devices()[0].platform.upper()}")
@@ -17,12 +21,17 @@ except IndexError:
 
 jax.config.update("jax_enable_x64", True)
 
+#Name and time stamp for the save file
+simulation_name = "1RC"
+date_time_now = datetime.datetime.now()
+timestamp = date_time_now.strftime("%Y-%m-%d_%H-%M-%S")
+file_name = f"results_{simulation_name}_{timestamp}.mat"
+
 # Loading training dataset
 DATA = loadmat('data_train.mat')
 u = DATA['i']
 y = DATA['v']
 time = DATA['t']
-
 
 fig, axs = plt.subplots(2, 1, sharex=True) # sharex makes sense for time series
 
@@ -41,7 +50,6 @@ axs[1].legend()
 axs[1].grid(True)
 
 plt.tight_layout() # Adjusts subplot params for a tight layout
-plt.show()
 
 time = time.reshape(-1)
 u = u.reshape(-1)
@@ -53,7 +61,7 @@ Ts = time[1]-time[0]
 fs = 1/Ts
 T = time[-1]  # Total time in seconds
 
-print(f"N ={N:.4f}\nfs={fs:.4f}\nT = {T:.4f}\nTs = {Ts:.4f}")
+print(f"Training Dataset:\nN ={N:.4f}\nfs={fs:.4f}\nT = {T:.4f}\nTs = {Ts:.4f}")
 
 
 n_shots = 100 # number of shots
@@ -192,7 +200,7 @@ with tqdm(total=max_iterations, desc="Optimizing Parameters") as pbar:
     def callback(xk):
         pbar.update(1)
 
-    print("--- Running Optimization with Automatic Differentiation ---")
+    print("\n--- Running Optimization with Automatic Differentiation ---")
     result = minimize(obj_for_scipy,
                       initial_guess_np,
                       method='SLSQP',
@@ -239,15 +247,15 @@ final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=x_init
 # final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=y[0], saveat=SaveAt(ts=jnp.array(time)), args=final_args_
 yhat = final_sol.ys.flatten()
 y_hat = jax.vmap(model_output_step, in_axes=(0, 0, None, None))(time,final_sol.ys, R0, u_interpolation)
-
+y_hat_train = y_hat
 #Metrics
-MSE = np.mean((y-y_hat)**2)
+MSEt = np.mean((y-y_hat)**2)
 y_mean = jnp.mean(y)
 RSS = jnp.sum((y - y_hat)**2)
 TSS = jnp.sum((y - y_mean)**2)
-r2 = 1.0 - (RSS / TSS)
+r2t = 1.0 - (RSS / TSS)
 
-print(f"R²: {r2:.4f}, MSE = {MSE:.4f}")
+print(f"R²: {r2t:.6f}, MSE = {MSEt:.6f}")
 
 # Plot final results
 plt.figure(figsize=(12, 7))
@@ -258,7 +266,6 @@ plt.xlabel('Time (s)')
 plt.title('Model Identification Result')
 plt.legend()
 plt.grid(True)
-plt.show()
 
 #Loading validation dataset
 DATA = loadmat('data_val.mat')
@@ -276,7 +283,7 @@ Ts = time[1]-time[0]
 fs = 1/Ts
 T = time[-1]  # Total time in seconds
 
-print(f"N ={N:.4f}\nfs={fs:.4f}\nT = {T:.4f}\nTs = {Ts:.4f}")
+print(f"Validation Dataset:\nN ={N:.4f}\nfs={fs:.4f}\nT = {T:.4f}\nTs = {Ts:.4f}")
 
 # Create a differentiable interpolation object for the input signal
 u_interpolation = LinearInterpolation(ts=time, ys=u)
@@ -286,7 +293,7 @@ final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=x_init
 # final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=y[0], saveat=SaveAt(ts=jnp.array(time)), args=final_args_
 yhat = final_sol.ys.flatten()
 y_hat = jax.vmap(model_output_step, in_axes=(0, 0, None, None))(time,final_sol.ys, R0, u_interpolation)
-
+y_hat_val = y_hat
 # # Plot final results
 plt.figure(figsize=(12, 7))
 plt.plot(time, y, 'k', label='True state', alpha=0.4)
@@ -296,12 +303,35 @@ plt.xlabel('Time (s)')
 plt.title('Model Identification Result')
 plt.legend()
 plt.grid(True)
-plt.show()
 
 #Metrics
-MSE = np.mean((y-y_hat)**2)
+MSEv = np.mean((y-y_hat)**2)
 y_mean = jnp.mean(y)
 RSS = jnp.sum((y - y_hat)**2)
 TSS = jnp.sum((y - y_mean)**2)
-r2 = 1.0 - (RSS / TSS)
-print(f"R²: {r2:.4f}, MSE = {MSE:.4f}")
+r2v = 1.0 - (RSS / TSS)
+print(f"R²: {r2v:.6f}, MSE = {MSEv:.6f}")
+
+sim_results = {
+    'Params' : np.array([R0,R1,C1,n]),
+    'y_hat_train': y_hat_train,
+    'y_hat_val': y_hat_val,
+    'Train_Metrics': np.array([r2t,MSEt]),
+    'Validation_Metrics': np.array([r2v,MSEv]),
+    'N_shots': n_shots,
+    'Decimate':decimate
+}
+
+#Saving the results
+try:
+    # A função savemat() pega o dicionário e o salva no arquivo .mat
+    # O argumento 'do_compression=True' é opcional e pode reduzir o tamanho do arquivo
+    savemat(file_name, sim_results, do_compression=True)
+
+    print(f"Results saved succesfully")
+    print(f"Saved variables: {list(sim_results.keys())}")
+
+except Exception as e:
+    print(f"Error saving the results: {e}")
+
+plt.show()
