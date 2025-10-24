@@ -26,7 +26,7 @@ y = DATA['v']
 time = DATA['t']
 
 #Name and time stamp for the save file
-simulation_name = "PNGV"
+simulation_name = "PNGV ocv+"
 date_time_now = datetime.datetime.now()
 timestamp = date_time_now.strftime("%Y-%m-%d_%H-%M-%S")
 file_name = f"results_{simulation_name}_{timestamp}.mat"
@@ -55,7 +55,7 @@ time = time.reshape(-1)
 u = u.reshape(-1)
 y = y.reshape(-1)
 #Simple implementation of a decimation of the signals to simplify the optimization problem
-decimate = 2
+decimate = 1
 u = u[::decimate]
 y = y[::decimate]
 time = time[::decimate]
@@ -219,7 +219,7 @@ with tqdm(total=max_iterations, desc="Optimizing Parameters") as pbar:
                       bounds=all_bounds,
                       options={'maxiter': max_iterations, 'disp': False}, # Set disp=False for cleaner output with tqdm
                       callback=callback,
-                      tol=1e-8
+                      tol=1e-6
                       )
 
 print("\nOptimization finished with status:", result.message)
@@ -344,4 +344,4 @@ try:
 except Exception as e:
     print(f"Error saving the results: {e}")
 
-plt.show()
+#plt.show()

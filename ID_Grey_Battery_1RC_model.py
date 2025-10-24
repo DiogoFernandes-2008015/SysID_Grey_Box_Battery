@@ -22,7 +22,7 @@ except IndexError:
 jax.config.update("jax_enable_x64", True)
 
 #Name and time stamp for the save file
-simulation_name = "1RC"
+simulation_name = "1RC_ocv+"
 date_time_now = datetime.datetime.now()
 timestamp = date_time_now.strftime("%Y-%m-%d_%H-%M-%S")
 file_name = f"results_{simulation_name}_{timestamp}.mat"
@@ -64,7 +64,7 @@ T = time[-1]  # Total time in seconds
 print(f"Training Dataset:\nN ={N:.4f}\nfs={fs:.4f}\nT = {T:.4f}\nTs = {Ts:.4f}")
 
 
-n_shots = 100 # number of shots
+n_shots = 10 # number of shots
 n_timesteps_per_shot = N // n_shots
 n_states = 2 # number of states of the model
 n_params = 4 # number of parameters
@@ -318,8 +318,7 @@ sim_results = {
     'y_hat_val': y_hat_val,
     'Train_Metrics': np.array([r2t,MSEt]),
     'Validation_Metrics': np.array([r2v,MSEv]),
-    'N_shots': n_shots,
-    'Decimate':decimate
+    'N_shots': n_shots
 }
 
 #Saving the results
@@ -334,4 +333,4 @@ try:
 except Exception as e:
     print(f"Error saving the results: {e}")
 
-plt.show()
+#plt.show()
