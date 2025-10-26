@@ -22,7 +22,7 @@ except IndexError:
 jax.config.update("jax_enable_x64", True)
 
 #Name and time stamp for the save file
-simulation_name = "2RC ocv+"
+simulation_name = "2RC_v0artigo"
 date_time_now = datetime.datetime.now()
 timestamp = date_time_now.strftime("%Y-%m-%d_%H-%M-%S")
 file_name = f"results_{simulation_name}_{timestamp}.mat"
@@ -32,7 +32,10 @@ DATA = loadmat('data_train.mat')
 u = DATA['i']
 y = DATA['v']
 time = DATA['t']
-
+decimate = 2
+u = u[::decimate]
+y = y[::decimate]
+time = time[::decimate]
 fig, axs = plt.subplots(2, 1, sharex=True) # sharex makes sense for time series
 
 # Plot 1: Input u
@@ -172,7 +175,7 @@ R1_guess = 56.323
 C1_guess = 3620.4
 R2_guess = 56.323
 C2_guess = 3620.4
-n_guess  = 1e-4
+n_guess  = .8
 param_guess = jnp.array([R0_guess, R1_guess, C1_guess,R2_guess,C2_guess, n_guess])
 
 # Guess for the states (x_0,1)
@@ -321,6 +324,7 @@ sim_results = {
     'Train_Metrics': np.array([r2t,MSEt]),
     'Validation_Metrics': np.array([r2v,MSEv]),
     'N_shots': n_shots,
+    'decimate': decimate
 }
 
 #Saving the results

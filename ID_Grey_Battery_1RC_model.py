@@ -22,7 +22,7 @@ except IndexError:
 jax.config.update("jax_enable_x64", True)
 
 #Name and time stamp for the save file
-simulation_name = "1RC_ocv+"
+simulation_name = "1RC_v0artigo"
 date_time_now = datetime.datetime.now()
 timestamp = date_time_now.strftime("%Y-%m-%d_%H-%M-%S")
 file_name = f"results_{simulation_name}_{timestamp}.mat"
@@ -170,7 +170,7 @@ def cons_jac_for_scipy(dv_np):
 R0_guess = 0.0268
 R1_guess = 56.323
 C1_guess = 3620.4
-n_guess  = 1e-4
+n_guess  = .8
 param_guess = jnp.array([R0_guess, R1_guess, C1_guess, n_guess])
 
 # Guess for the states (x_0,1)

@@ -26,7 +26,7 @@ y = DATA['v']
 time = DATA['t']
 
 #Name and time stamp for the save file
-simulation_name = "PNGV ocv+"
+simulation_name = "PNGV_v0artigo"
 date_time_now = datetime.datetime.now()
 timestamp = date_time_now.strftime("%Y-%m-%d_%H-%M-%S")
 file_name = f"results_{simulation_name}_{timestamp}.mat"
@@ -55,7 +55,7 @@ time = time.reshape(-1)
 u = u.reshape(-1)
 y = y.reshape(-1)
 #Simple implementation of a decimation of the signals to simplify the optimization problem
-decimate = 1
+decimate = 2
 u = u[::decimate]
 y = y[::decimate]
 time = time[::decimate]
