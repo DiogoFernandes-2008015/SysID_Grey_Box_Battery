@@ -12,7 +12,24 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from diffrax import diffeqsolve, Dopri5, ODETerm, SaveAt, LinearInterpolation
+import pyttsx3
 
+
+def falar(texto):
+    engine = pyttsx3.init()
+
+    # Ajustar velocidade (opcional)
+    engine.setProperty('rate', 180)
+
+    # Escolher voz em Português (geralmente índice 0 ou 1)
+    voices = engine.getProperty('voices')
+    for voice in voices:
+        if "brazil" in voice.name.lower() or "portuguese" in voice.name.lower():
+            engine.setProperty('voice', voice.id)
+            break
+
+    engine.say(texto)
+    engine.runAndWait()
 #Cheking where is JAX running
 try:
     print(f"JAX is running on: {jax.devices()[0].platform.upper()}")
@@ -32,7 +49,7 @@ DATA = loadmat('data_train.mat')
 u = DATA['i']
 y = DATA['v']
 time = DATA['t']
-decimate = 2
+decimate = 1
 u = u[::decimate]
 y = y[::decimate]
 time = time[::decimate]
@@ -170,12 +187,12 @@ def cons_jac_for_scipy(dv_np):
     return np.array(constraints_jac_func(jnp.array(dv_np)))
 
 # Set up the optimization problem - initial guess
-R0_guess = 0.0268
-R1_guess = 56.323
-C1_guess = 3620.4
-R2_guess = 56.323
-C2_guess = 3620.4
-n_guess  = .8
+R0_guess = 0.2735
+R1_guess = 500
+C1_guess = 5000
+R2_guess = 500
+C2_guess = 5000
+n_guess  = .2
 param_guess = jnp.array([R0_guess, R1_guess, C1_guess,R2_guess,C2_guess, n_guess])
 
 # Guess for the states (x_0,1)
@@ -189,7 +206,7 @@ cons = ({'type': 'eq', 'fun': cons_for_scipy, 'jac': cons_jac_for_scipy})
 
 # Setting bounds for parameters and states
 b_R0 = (1e-6, 1)
-b_R1 = (1e-6, 1e10)
+b_R1 = (1e-6, 600)
 b_C1 = (1.0, 50000.0)
 b_n = (1e-6, 1)
 param_bounds = [b_R0, b_R1, b_C1, b_R1, b_C1, b_n]
@@ -199,6 +216,7 @@ state_bounds_one_shot = [b_no_limit, b_no_limit, b_no_limit] # number of states
 state_bounds_all_shots = state_bounds_one_shot * n_shots
 all_bounds = param_bounds + state_bounds_all_shots
 
+falar("Iniciando otimização.")
 # Run the optimization with a progress bar
 max_iterations = 10000
 with tqdm(total=max_iterations, desc="Optimizing Parameters") as pbar:
@@ -218,7 +236,7 @@ with tqdm(total=max_iterations, desc="Optimizing Parameters") as pbar:
                       )
 
 print("\nOptimization finished with status:", result.message)
-
+falar("Iniciando Simulação com dados de treinamento")
 # Extract and display results
 R0,R1,C1,R2,C2,n = result.x[:n_params]
 x_initial_estimated = jnp.array(result.x[n_params:n_params+n_states])
@@ -272,6 +290,7 @@ plt.title('Model Identification Result')
 plt.legend()
 plt.grid(True)
 
+falar("Iniciando simulação com dados de validação")
 #Loading validation dataset
 DATA = loadmat('data_val.mat')
 u = DATA['i']
@@ -292,7 +311,7 @@ print(f"Validation Dataset:\nN ={N:.4f}\nfs={fs:.4f}\nT = {T:.4f}\nTs = {Ts:.4f}
 
 # Create a differentiable interpolation object for the input signal
 u_interpolation = LinearInterpolation(ts=time, ys=u)
-
+final_args = (R0, R1,C1,R2,C2,n, u_interpolation)
 # Simulate the final model prediction
 final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=x_initial_estimated, saveat=SaveAt(ts=jnp.array(time)), args=final_args,max_steps=100000)
 # final_sol = diffeqsolve(term, solver, t0=time[0], t1=time[-1], dt0=Ts, y0=y[0], saveat=SaveAt(ts=jnp.array(time)), args=final_args_
@@ -338,5 +357,5 @@ try:
 
 except Exception as e:
     print(f"Error saving the results: {e}")
-
-#plt.show()
+falar("Simulação encerrada")
+plt.show()

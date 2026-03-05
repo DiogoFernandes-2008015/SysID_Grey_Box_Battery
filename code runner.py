@@ -31,8 +31,8 @@ if __name__ == "__main__":
     # Exemplo: liste aqui os seus scripts na ordem desejada
     scripts = [
         "ID_Grey_Battery_1RC_model.py",
-        "ID_Grey_Battery_2RC_model.py",
-        "ID_Grey_Battery_PNGV.py"
+        #"ID_Grey_Battery_2RC_model.py",
+        #"ID_Grey_Battery_PNGV.py"
     ]
     ok = run_scripts_in_sequence(scripts, continue_on_error=False)
     print("Sequência concluída com sucesso." if ok else "Sequência interrompida por erro.")

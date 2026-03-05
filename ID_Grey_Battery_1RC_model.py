@@ -167,10 +167,10 @@ def cons_jac_for_scipy(dv_np):
     return np.array(constraints_jac_func(jnp.array(dv_np)))
 
 # Set up the optimization problem - initial guess
-R0_guess = 0.0268
-R1_guess = 56.323
-C1_guess = 3620.4
-n_guess  = .8
+R0_guess = 0.2526
+R1_guess = 113.1030
+C1_guess = 849.7679
+n_guess  = .012
 param_guess = jnp.array([R0_guess, R1_guess, C1_guess, n_guess])
 
 # Guess for the states (x_0,1)
@@ -184,8 +184,8 @@ cons = ({'type': 'eq', 'fun': cons_for_scipy, 'jac': cons_jac_for_scipy})
 
 # Setting bounds for parameters and states
 b_R0 = (1e-6, 1)
-b_R1 = (1e-6, 1e10)
-b_C1 = (1.0, 50000.0)
+b_R1 = (1e-6, 500)
+b_C1 = (1.0, 5000.0)
 b_n = (1e-6, 1)
 param_bounds = [b_R0, b_R1, b_C1, b_n]
 
@@ -332,5 +332,3 @@ try:
 
 except Exception as e:
     print(f"Error saving the results: {e}")
-
-#plt.show()
